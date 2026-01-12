@@ -1,0 +1,277 @@
+---
+title: "Model Validation and Selection"
+author: "Catalina Valencia"
+output: html_document
+---
+
+**Project:** Credit Approval Classification: Model Validation and Generalization Analysis
+
+**File:** 04_model_validation_and_selection.Rmd
+
+### Objectives:
+- Evaluate model performance using cross-validation.
+- Evaluate generalization using train/validation/test splits.
+- Compare SVM and KNN classifiers.
+- Select final models based on validation performance.
+
+Environment Setup
+
+```{r}
+rm(list = ls())
+```
+
+Load Required Libraries
+
+```{r}
+library(kernlab) 
+library(kknn)
+```
+
+Load Data
+
+```{r}
+data <- read.table(
+  "../data/credit_card_data.txt",
+  header = FALSE,
+  stringsAsFactors = FALSE
+)
+```
+
+### Cross-Validation
+
+**SVM Cross-Validation**
+
+```{r, echo=TRUE, results='hide'}
+set.seed(1)
+
+C_values <- c(0.0001, 0.001, 0.01, 0.1, 1, 10)
+svm_cv_acc <- numeric(length(C_values))
+
+for (i in seq_along(C_values)) {
+  
+  model <- ksvm(
+    as.matrix(data[,1:10]),
+    as.factor(data[,11]),
+    type = "C-svc",
+    kernel = "vanilladot",
+    C = C_values[i],
+    scaled = TRUE
+  )
+  
+  preds <- predict(model, data[,1:10])
+  svm_cv_acc[i] <- mean(preds == data[,11])
+}
+
+svm_cv_acc
+```
+
+**Results:**
+
+Linear SVM performance was evaluated across multiple values of the regularization parameter C.
+
+- Very small values of C (e.g., C = 0.0001) resulted in poor classification performance (accuracy ≈ 0.55), consistent with excessive regularization.
+
+- Accuracy improved substantially for C ≥ 0.001 and flattened at approximately 0.864 for C ≥ 0.01.
+
+This indicates that the linear SVM is relatively insensitive to the exact choice of C once sufficient model flexibility is allowed, and that moderate-to-large C values yield stable performance.
+
+**KNN Cross-Validation (LOOCV using train.kknn)**
+
+```{r}
+set.seed(1)
+
+kmax <- 20
+knn_cv_model <- train.kknn(V11 ~ ., data, kmax = kmax, scale = TRUE)
+
+knn_cv_acc <- numeric(kmax)
+
+for (k in 1:kmax) {
+  preds <- as.integer(fitted(knn_cv_model)[[k]] + 0.5)
+  knn_cv_acc[k] <- mean(preds == data$V11)
+}
+
+knn_cv_acc
+
+best_k_cv <- which.max(knn_cv_acc)
+best_k_cv
+```
+
+**Results:**
+
+Leave-one-out cross-validation was used to evaluate KNN classifiers for k values from 1 to 20.
+
+- Small neighborhood sizes (k = 1–4) produced lower accuracy (≈ 0.815), indicating higher sensitivity to noise.
+
+- Accuracy improved for moderate k values and stabilized around 0.85–0.853 for k between approximately 10 and 17.
+
+- The highest observed LOOCV accuracy occurred at k = 12 (accuracy ≈ 0.853).
+
+This pattern suggests that moderate neighborhood sizes provide a favorable bias–variance tradeoff for KNN on this dataset.
+
+
+### Train / Validation / Test Split
+
+Split Data into 60% Train, 20% Validation, 20% Test sets
+
+```{r}
+set.seed(1)
+train_idx <- sample(nrow(data), size = floor(0.6 * nrow(data)))
+train_data <- data[train_idx, ]
+
+remaining <- data[-train_idx, ]
+val_idx <- sample(nrow(remaining), size = floor(0.5 * nrow(remaining)))
+
+val_data  <- remaining[val_idx, ]
+test_data <- remaining[-val_idx, ]
+```
+
+**SVM Train / Validation / Test**
+
+```{r, echo=TRUE, results='hide'}
+svm_val_acc <- numeric(length(C_values))
+
+for (i in seq_along(C_values)) {
+  
+  model <- ksvm(
+    as.matrix(train_data[,1:10]),
+    as.factor(train_data[,11]),
+    type   = "C-svc",
+    kernel = "vanilladot",
+    C      = C_values[i],
+    scaled = TRUE
+  )
+  
+  preds <- predict(model, val_data[,1:10])
+  svm_val_acc[i] <- mean(preds == val_data$V11)
+}
+
+best_C <- C_values[which.max(svm_val_acc)]
+best_C
+```
+
+**Results:**
+
+Using a 60/20/20 train/validation/test split, the linear SVM model was tuned using validation accuracy.
+
+- The optimal regularization parameter selected was C = 0.01.
+
+This selection was based exclusively on validation performance, ensuring that the test set remained untouched until final model evaluation.
+
+**Final Test Evaluation**
+```{r}
+svm_final <- ksvm(
+  as.matrix(train_data[,1:10]),
+  as.factor(train_data[,11]),
+  type = "C-svc",
+  kernel = "vanilladot",
+  C = best_C,
+  scaled = TRUE
+)
+
+svm_test_acc <- mean(
+  predict(svm_final, test_data[,1:10]) == test_data$V11
+)
+
+svm_test_acc
+```
+
+**Results:**
+
+The final linear SVM model achieved a test accuracy of 0.8626 on the test set.
+
+This provides an unbiased estimate of generalization performance after model tuning.
+
+
+**KNN Train / Validation / Test**
+
+```{r}
+knn_val_acc <- numeric(20)
+
+for (k in 1:20) {
+  
+  model <- kknn(
+    V11 ~ .,
+    train = train_data,
+    test  = val_data,
+    k = k,
+    scale = TRUE
+  )
+  
+  preds <- as.integer(fitted(model) + 0.5)
+  knn_val_acc[k] <- mean(preds == val_data$V11)
+}
+
+best_k <- which.max(knn_val_acc)
+best_k
+```
+
+**Results:**
+
+For the KNN classifier, validation accuracy was evaluated across k values from 1 to 20.
+
+- The optimal value selected was k = 10.
+
+This selection was based exclusively on validation performance, ensuring that the held-out test set remained untouched until final model evaluation.
+
+**Final Test Evaluation**
+
+```{r}
+knn_final <- kknn(
+  V11 ~ .,
+  train = train_data,
+  test  = test_data,
+  k = best_k,
+  scale = TRUE
+)
+
+knn_test_acc <- mean(
+  as.integer(fitted(knn_final) + 0.5) == test_data$V11
+)
+
+knn_test_acc
+```
+
+**Results:**
+
+The final KNN classifier achieved a test accuracy of 0.8779 on the held-out test set.
+
+This reflects the estimated generalization performance of the tuned KNN model after validation-based hyperparameter selection.
+
+
+### Model Comparison and Final Selection
+
+- Compare final SVM and KNN models using held-out test performance.
+
+- Select the preferred model based on generalization accuracy.
+
+```{r}
+results <- data.frame(
+  Model = c("SVM (Linear)", "KNN"),
+  Validation_Selection = c(
+    paste("C =", best_C),
+    paste("k =", best_k)
+  ),
+  Test_Accuracy = c(svm_test_acc, knn_test_acc)
+)
+
+results
+```
+
+Identify best-performing model on test data
+
+```{r}
+best_model <- results$Model[which.max(results$Test_Accuracy)]
+best_model
+```
+
+**Results:**
+
+Final model comparison was conducted using held-out test accuracy.
+
+- Both SVM and KNN were tuned exclusively using validation data.
+
+- The model with the higher test accuracy was selected as the preferred classifier.
+
+The final selected model is: **KNN**.
+
+While the performance difference is modest, the KNN model consistently outperformed the linear SVM on the held-out test set under identical data splits and evaluation conditions.

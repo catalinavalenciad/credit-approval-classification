@@ -1,0 +1,257 @@
+---
+title: "Imputation Study"
+author: "Catalina Valencia"
+output: html_document
+---
+
+**Project:** Credit Approval Classification: Model Validation and Generalization Analysis
+
+**File:** 02_imputation_study.Rmd
+
+### Objectives:
+- Demonstrate multiple imputation strategies.
+- Evaluate methodological approaches to missing data.
+- Confirm robustness of modeling choices.
+
+### Notes:
+- The original dataset contains no missing values.
+- Imputation is explored for methodological completeness only.
+- Final models use the original complete dataset.
+
+Environment Setup
+
+```{r}
+rm(list = ls())
+set.seed(1)
+```
+
+Load Data
+
+```{r}
+ccdata <- read.table(
+  "../data/credit_card_data.txt",
+  header = FALSE,
+  stringsAsFactors = FALSE
+)
+```
+
+Keep a clean copy of the original data
+
+```{r}
+ccdata_original <- ccdata
+```
+
+**Introduce Artificial Missing Values**
+
+Introduce artificial missing values in one continuous predictor (V5).
+
+4% of observations are affected.
+
+```{r}
+ccdata_imp <- ccdata_original
+
+missing_idx <- sample(
+  1:nrow(ccdata_imp),
+  size = floor(0.04 * nrow(ccdata_imp))
+)
+
+ccdata_imp$V5[missing_idx] <- NA
+```
+
+Inspect missing values
+
+```{r}
+sum(is.na(ccdata_imp$V5))
+mean(is.na(ccdata_imp$V5))
+```
+
+**Results:**
+
+A total of 26 observations (3.9755% of the dataset) were artificially set to missing in predictor V5.
+
+This level of missingness is small and realistic, and is intended to test imputation behavior without altering the underlying data structure.
+
+### Mean Imputation
+
+```{r}
+mean_V5 <- mean(ccdata_imp$V5, na.rm = TRUE)
+
+ccdata_mean_imp <- ccdata_imp
+ccdata_mean_imp$V5[is.na(ccdata_mean_imp$V5)] <- mean_V5
+```
+
+Check that no missing values remain
+
+```{r}
+sum(is.na(ccdata_mean_imp$V5))
+```
+
+**Compare before and after Mean Imputation**
+
+Before Mean Imputation
+
+```{r}
+summary(ccdata_imp$V5)
+var(ccdata_imp$V5, na.rm = TRUE)
+sd(ccdata_imp$V5, na.rm = TRUE)
+```
+
+After Mean Imputation
+
+```{r}
+summary(ccdata_mean_imp$V5)
+var(ccdata_mean_imp$V5) 
+sd(ccdata_mean_imp$V5)
+```
+
+**Results:**
+
+- Mean imputation successfully replaced all 26 missing values in V5.
+
+- No missing observations remain after imputation.
+
+- Summary statistics (min, 1st quartile, median, mean, 3rd quartile, max) remain almost identical, but variance and standard deviation decreased slightly.
+
+### Regression Imputation
+
+Separate complete and missing cases
+
+```{r}
+ccdata_complete <- ccdata_imp[!is.na(ccdata_imp$V5), ]
+ccdata_missing  <- ccdata_imp[is.na(ccdata_imp$V5), ]
+```
+
+Fit a regression model to predict V5 using other predictors (excluding the response V11)
+
+```{r}
+reg_model <- lm(
+  V5 ~ V1 + V2 + V3 + V4 + V6 + V7 + V8 + V9 + V10,
+  data = ccdata_complete
+)
+
+summary(reg_model)
+```
+Predict missing values and create regression-imputed dataset
+
+```{r}
+V5_hat <- predict(reg_model, newdata = ccdata_missing)
+
+ccdata_reg_imp <- ccdata_imp
+ccdata_reg_imp$V5[is.na(ccdata_reg_imp$V5)] <- V5_hat
+```
+
+Create regression-imputed dataset
+
+```{r}
+ccdata_reg_imp <- ccdata_imp
+ccdata_reg_imp$V5[is.na(ccdata_reg_imp$V5)] <- V5_hat
+```
+
+**Compare before and after Regression Imputation**
+
+Before Regression Imputation
+
+```{r}
+summary(ccdata_imp$V5)
+var(ccdata_imp$V5, na.rm = TRUE)
+sd(ccdata_imp$V5, na.rm = TRUE)
+```
+
+After Regression Imputation
+
+```{r}
+summary(ccdata_reg_imp$V5)
+var(ccdata_reg_imp$V5) 
+sd(ccdata_reg_imp$V5)
+```
+**Results:**
+
+- Regression imputation replaced all 26 missing values in V5, with no missing observations remaining.
+
+- Variance and standard deviation changed slightly (Variance: from 0.2489  to 0.2408, SD: from 0.4989 to 0.4907), preserving overall variability.
+
+- R² of the regression model is 0.2731, showing weak to moderate predictive ability.
+
+- Relationships with other predictors are maintained, making regression imputation more realistic than mean imputation.
+
+### Regression with Perturbation Imputation
+
+Add noise based on the model's residual standard error.
+This reflects uncertainty in the regression estimates.
+
+```{r}
+resid_sd <- summary(reg_model)$sigma
+round(resid_sd, 3)
+```
+
+**Results:**
+
+- The residual standard error of the regression model is 0.428.
+
+- Random noise drawn from N(0, sigma²) was added to regression predictions to reflect uncertainty in the imputed values.
+
+```{r}
+set.seed(1)
+perturb <- rnorm(
+  n = length(V5_hat),
+  mean = 0,
+  sd = resid_sd
+)
+```
+
+Apply perturbation to regression predictions
+
+```{r}
+ccdata_reg_pert_imp <- ccdata_imp
+ccdata_reg_pert_imp$V5[is.na(ccdata_reg_pert_imp$V5)] <- V5_hat + perturb
+```
+
+**Compare before and after Regression Imputation with Perturbation**
+
+Before Regression Imputation with Perturbation
+
+```{r}
+summary(ccdata_imp$V5)
+var(ccdata_imp$V5, na.rm = TRUE)
+sd(ccdata_imp$V5, na.rm = TRUE)
+```
+After Regression Imputation with Perturbation
+
+```{r}
+summary(ccdata_reg_pert_imp$V5)
+var(ccdata_reg_pert_imp$V5)
+sd(ccdata_reg_pert_imp$V5)
+```
+**Results:**
+
+- Regression with perturbation imputation replaced all 26 missing values in V5.
+
+- Variance and SD changed slightly (Variance: from 0.2489 to 0.2465, SD: from 0.4989 to 0.4965), preserving overall variability.
+
+- Minimum and maximum now extend slightly (from -0.5443 to 1.4251) due to added noise, reflecting realistic uncertainty.
+
+### Comparison of Imputation Methods
+
+- Mean imputation replaced all 26 missing values but slightly reduced variance (from 0.2489 to 0.2390) and standard deviation (from 0.4989 to 0.4889), ignoring relationships with other predictors. 
+
+- Regression imputation preserved relationships while maintaining variability (Variance: 0.2489 from to 0.2408, SD: from 0.4989 to 0.4907). 
+
+- Regression with perturbation added realistic noise, slightly increasing variance and standard deviation (Variance: from 0.2489 to 0.2465, SD: from 0.4989 to 0.4965) and extending the range of values (from -0.5443 to 1.4251), making it the most realistic representation of uncertainty in the data. 
+
+Overall, all methods successfully replaced missing values, but regression-based approaches better preserve relationships and variability than mean imputation.
+
+**Return to clean dataset**
+  
+```{r}
+ccdata <- ccdata_original
+```
+
+**Conclusion on Missing Data:**
+
+- The Credit Approval dataset is originally complete and contains no missing values.
+
+- Artificial missingness (4%) was introduced to demonstrate and compare common imputation strategies, including mean imputation, regression imputation, and regression with perturbation.
+
+- No meaningful differences were observed that would justify replacing the original complete data.
+
+- To avoid introducing unnecessary noise or modeling, all subsequent analyses use the original dataset without imputation.

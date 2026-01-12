@@ -1,0 +1,138 @@
+---
+title: "Data Overview and Preparation"
+author: "Catalina Valencia"
+output: html_document
+---
+
+**Project:** Credit Approval Classification: Model Validation and Generalization Analysis
+
+**File:** 01_data_overview_and_preparation.Rmd
+
+### Objectives:
+- Load and inspect the Credit Approval dataset.
+- Verify structure, variable roles, and completeness.
+- Make pre-processing decisions (scaling, response definition).
+- Create clean objects for downstream modeling.
+
+### Notes:
+- No modeling is performed in this file.
+
+Environment Setup
+
+```{r}
+rm(list = ls())
+```
+
+Load Data
+
+```{r}
+ccdata <- read.table(
+  "../data/credit_card_data.txt",
+  header = FALSE,
+  stringsAsFactors = FALSE
+)
+```
+
+### Data Overview
+
+```{r}
+head(ccdata)
+tail(ccdata)
+dim(ccdata)
+str(ccdata)
+summary(ccdata)
+```
+
+**Results:**
+
+- The dataset contains 654 observations and 11 variables: 10 predictors (V1–V10) and 1 binary response (V11).
+
+- Predictors (V1–V10) are all numeric, consisting of a mix of continuous variables, integers, and binary variables (0/1).
+
+- The response variable (V11) is a binary outcome representing credit approval status (0/1).
+
+- The documentation does not explicitly define which value corresponds to approval or rejection; therefore, models treat class labels abstractly and are evaluated based on correct classification only.
+
+The presence of predictors on different numeric scales supports the use of standardized features in downstream SVM and KNN models.
+
+```{r}
+table(ccdata$V11)
+prop.table(table(ccdata$V11))
+```
+
+**Results:**
+
+- The response variable V11 is binary, with moderately balanced classes.
+
+- No severe class imbalance is present, so accuracy is an appropriate performance metric in subsequent analyses.
+
+### Response and Predictor Definition
+
+**Response variable:**
+
+V11 indicates credit approval status (binary outcome)
+
+```{r}
+y <- as.factor(ccdata$V11)
+```
+
+**Predictor variables:**
+
+V1 through V10 are numeric predictors
+
+```{r}
+X <- ccdata[, 1:10]
+```
+
+### Missing Data Verification
+
+Confirm that the dataset contains no missing values
+
+```{r}
+colSums(is.na(ccdata))
+```
+
+**Results:**
+
+- No missing values are present in the original dataset.
+
+- Imputation experiments are conducted separately and do not affect the modeling dataset used in subsequent analyses.
+
+### Scaling Decision
+
+Predictors are scaled (centered and standardized).
+
+Scaling is required for:
+
+- Support Vector Machine Modeling (margin-based).
+- k-Nearest Neighbor Modeling (distance-based).
+
+```{r}
+X_scaled <- scale(X)
+```
+
+Combine scaled predictors with response
+
+```{r}
+ccdata_scaled <- data.frame(X_scaled, V11 = y)
+```
+
+**Results:**
+
+Predictors are standardized to ensure that all variables contribute comparably to distance-based (KNN) and margin-based (SVM) classifiers.
+
+### Objects Created for Reference
+
+ccdata        : original unscaled dataset 
+
+y             : factor-encoded response variable 
+
+X             : raw predictor matrix
+
+X_scaled      : standardized predictors (demonstration only)
+
+ccdata_scaled : combined scaled predictors and response
+
+**Note:**
+
+Downstream modeling scripts reload the dataset directly and perform scaling internally to ensure self-contained analyses.

@@ -1,0 +1,290 @@
+---
+title: "Baseline Models"
+author: "Catalina Valencia"
+output: html_document
+---
+
+**Project:** Credit Approval Classification: Model Validation and Generalization Analysis
+
+**File:** 03_baseline_models.Rmd
+
+### Objectives:
+- Develop baseline classification models for credit approval outcomes
+- Apply linear Support Vector Machines (SVM) and k-Nearest Neighbors (KNN)
+- Select key model hyperparameters through structured trial-and-error
+- Evaluate in-sample classification performance on the full dataset
+
+### Notes:
+- This file focuses on model formulation and interpretability
+- Formal validation and model comparison are handled in a separate file
+
+Environment Setup
+
+```{r}
+rm(list = ls())
+```
+
+Load Required Libraries
+
+```{r}
+library(kernlab)
+library(kknn)    
+```
+
+Load Data
+
+```{r}
+data <- read.table(
+  "../data/credit_card_data.txt",
+  header = FALSE,
+  stringsAsFactors = FALSE
+)
+```
+
+### Support Vector Machine (SVM) — Linear Kernel
+
+- Identify an effective linear SVM classifier for credit approval
+- Select a reasonable regularization parameter (C) via trial-and-error
+- Compute the classifier coefficients explicitly
+- Evaluate in-sample classification performance
+
+**Notes:**
+
+- Predictors are internally scaled using scaled = TRUE
+- No train/validation split is used at this stage
+- Model selection focuses on stability and interpretability rather than optimization
+
+**Exploratory Selection of Regularization Parameter C**
+
+- Identify a stable and interpretable value of C.
+
+- Avoid trivial classifiers that predict almost all observations as the same class.
+
+- The goal is interpretability and stability, not optimization.
+
+```{r}
+set.seed(1)
+
+c_values <- c(0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000)
+
+accuracy   <- numeric(length(c_values))
+prop_class1 <- numeric(length(c_values))
+
+for (i in seq_along(c_values)) {
+  
+  model_tmp <- ksvm(
+    as.matrix(data[,1:10]),
+    as.factor(data[,11]),
+    type   = "C-svc",
+    kernel = "vanilladot",
+    C      = c_values[i],
+    scaled = TRUE
+  )
+  
+  preds <- predict(model_tmp, data[,1:10])
+  
+  accuracy[i]   <- mean(preds == data[,11])
+  prop_class1[i] <- mean(preds == 1)
+  
+  cat(
+    "C =", c_values[i],
+    "| Training Accuracy =", round(accuracy[i], 4),
+    "| Proportion predicted as 1 =", round(prop_class1[i], 3), "\n"
+  )
+}
+```
+
+**Results:**
+
+Training accuracy and class balance were evaluated across a range of regularization values C.
+
+- Extremely small C values (e.g., C = 0.0001) produced an underfit classifier that predicted all observations as class 0, achieving only baseline accuracy (0.5474).
+
+- Moderate values of C (C ≥ 0.01) yielded stable classifiers with consistently high training accuracy (≈ 0.864) and balanced class predictions.
+
+- Very large values of C (up to 1000) did not materially improve performance and showed no meaningful gains over smaller values.
+
+A value of C = 100 was selected for the final linear SVM model, as it provides strong accuracy (0.8639) with stable and balanced predictions, without unnecessary sensitivity to the margin.
+
+**Final Linear SVM Model**
+
+```{r}
+C_final <- 100
+
+svm_model <- ksvm(
+  as.matrix(data[,1:10]),
+  as.factor(data[,11]),
+  type   = "C-svc",
+  kernel = "vanilladot",
+  C      = C_final,
+  scaled = TRUE
+)
+
+svm_model
+```
+
+**Explicit Computation of Classifier Coefficients**
+
+The linear decision boundary/classifier is expressed as: a1x1 + a2x2 + ... + a10x10 + a0 = 0
+
+Coefficients correspond to scaled predictor variables.
+
+Compute coefficients a1 ... a10
+
+```{r}
+a <- colSums(svm_model@xmatrix[[1]] * svm_model@coef[[1]])
+```
+
+Compute intercept a0
+
+```{r}
+a0 <- -svm_model@b
+
+a
+a0
+```
+
+**Results:**
+
+The final linear SVM classifier has the form (using standardized predictors z1–z10):
+
+a1*z1 + a2*z2 + ... + a10*z10 + a0 = 0
+
+The final decision boundary is:
+
+**-0.0010065·z1  - 0.0011729·z2  - 0.0016262·z3 + 0.0030064·z4 + 1.0049406·z5  - 0.0028259·z6 + 0.0002600·z7 - 0.0005350·z8  - 0.0012284·z9 + 0.1063634·z10 + 0.0815849 = 0**
+
+where predictors are standardized and zi denotes the standardized version of predictor Vi.
+
+- Predictor V5 dominates the decision boundary, with a coefficient over an order of magnitude larger than all others.
+
+- Several predictors have coefficients near zero, suggesting limited contribution in the linear model.
+
+**In-Sample Classification Performance**
+
+- Classify all observations using the final SVM.
+
+- Compute training accuracy on the full dataset.
+
+```{r}
+pred <- predict(svm_model, data[,1:10])
+
+training_accuracy <- mean(pred == data[,11])
+training_accuracy
+```
+
+**Results:**
+
+- The final linear SVM achieves a training accuracy of 0.8639 (86.39%) on the full dataset.
+
+- This reflects a strong in-sample fit for a linear classifier, but does not represent true predictive performance.
+
+- Formal validation and generalization assessment are conducted in a separate file.
+
+### k-Nearest Neighbors (KNN) Classifier
+
+- Identify a suitable value of k for KNN classification.
+
+- Evaluate classification accuracy using leave-one-out logic.
+
+- Ensure proper scaling of predictors.
+
+- Assess in-sample performance on the full dataset.
+
+**Notes:**
+
+- Predictors are scaled using scale = TRUE to ensure fair distance comparisons.
+
+- Each observation is classified using all remaining observations (LOOCV).
+
+- Selection of k emphasizes classification stability across nearby values.
+
+Load Required Library
+
+```{r}
+library(kknn)
+```
+
+**Prepare Data for KNN**
+
+Assign column names for clarity
+
+```{r}
+colnames(data) <- paste0("V", 1:11)
+```
+
+Ensure response variable is treated as a factor
+
+```{r}
+data$V11 <- as.factor(data$V11)
+```
+
+**Leave-One-Out Evaluation for Different k Values**
+
+- Avoid using each observation as its own nearest neighbor.
+
+- Estimate classification accuracy for different values of k.
+
+This procedure corresponds to leave-one-out cross-validation (LOOCV).
+
+```{r}
+set.seed(1)
+
+k_values <- 1:20
+accuracy <- numeric(length(k_values))
+
+for (k in k_values) {
+  
+  predictions <- character(nrow(data))
+  
+  for (i in 1:nrow(data)) {
+    
+    knn_model <- kknn(
+      V11 ~ V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9 + V10,
+      train = data[-i, ],
+      test  = data[i, , drop = FALSE],
+      k     = k,
+      scale = TRUE
+    )
+    
+    # kknn returns a probability; convert to class label
+    
+    predictions[i] <- as.character(fitted(knn_model))
+    
+  }  # closes inner loop
+  
+  accuracy[k] <- mean(predictions == data$V11)
+  
+}  # closes outer loop
+
+accuracy
+```
+
+**Results:**
+
+Leave-one-out cross-validation (LOOCV) accuracy was evaluated for k values from 1 to 20.
+
+- Very small k values (k = 1–4) showed lower accuracy (~81.5%), indicating sensitivity to noise and individual observations.
+
+- Accuracy stabilized for k ≥ 5, remaining consistently above 84%.
+
+- The highest observed accuracy occurred at k = 12 and k = 15 (accuracy = 0.8532), with nearly identical performance for nearby k values.
+
+This pattern suggests that KNN performance is stable across a range of moderate k values, and that small differences in accuracy (often one or two observations) are not statistically meaningful.
+
+**Selection of Final k**
+
+Based on accuracy results, k = 15 provides one of the highest and most stable classification accuracies.
+
+```{r}
+k_final <- 15
+accuracy[k_final]
+```
+
+**Results:**
+
+A value of k = 15 was selected for the baseline KNN classifier.
+
+This choice balances classification accuracy (0.8532) with stability across nearby k values.
+
+As with the SVM model, this performance reflects in-sample behavior under LOOCV and is not a substitute for external validation.
